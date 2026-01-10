@@ -1,2 +1,2 @@
 # zealify-docsets-builder
-A github repository for automating generation of programming docsets.
+A github repository for automating generation of programming docsets for Zealify.
