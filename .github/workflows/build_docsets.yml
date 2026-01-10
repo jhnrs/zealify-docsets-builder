@@ -1,0 +1,64 @@
+name: Build and Package Docsets
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Runs weekly on Sunday
+  workflow_dispatch:      # Allows manual trigger
+
+jobs:
+  build-docsets:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - name: "Flutter"
+            id: "flutter"
+            url: "https://api.flutter.dev/flutter/material/material-library.html"
+          - name: "Dart"
+            id: "dart"
+            url: "https://api.dart.dev/stable/"
+          - name: "Python"
+            id: "python"
+            url: "https://docs.python.org/3/library/"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dashing
+        run: |
+          wget https://github.com/technosophos/dashing/releases/download/0.4.0/dashing-linux-amd64
+          chmod +x dashing-linux-amd64
+          sudo mv dashing-linux-amd64 /usr/local/bin/dashing
+
+      - name: Create Work Directory
+        run: mkdir -p build/${{ matrix.id }}
+
+      - name: Scrape Documentation
+        run: |
+          # Limit depth to 2 to prevent downloading the entire internet
+          wget --recursive --no-parent --level=2 --page-requisites --convert-links \
+               -P build/${{ matrix.id }}/html ${{ matrix.url }}
+
+      - name: Prepare Dashing Config
+        run: |
+          # Safely inject variables into your generic template
+          sed "s/{{DOCSET_NAME}}/${{ matrix.name }}/g; s/{{DOCSET_ID}}/${{ matrix.id }}/g" \
+              dashing.template.json > build/${{ matrix.id }}/html/dashing.json
+
+      - name: Compile Docset
+        working-directory: build/${{ matrix.id }}/html
+        run: dashing build ${{ matrix.id }}
+
+      - name: Move and Compress
+        run: |
+          mv build/${{ matrix.id }}/html/${{ matrix.id }}.docset ./outputs/${{ matrix.name }}.docset
+          tar -cvzf ${{ matrix.name }}.tar.gz -C ./outputs ${{ matrix.name }}.docset
+
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest-docs
+          files: ${{ matrix.name }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
