@@ -36,9 +36,14 @@ jobs:
 
       - name: Scrape Documentation
         run: |
-          # Limit depth to 2 to prevent downloading the entire internet
-          wget --recursive --no-parent --level=2 --page-requisites --convert-links \
-               -P build/${{ matrix.id }}/html ${{ matrix.url }}
+          wget --recursive \
+               --no-parent \
+               --level=2 \
+               --page-requisites \
+               --convert-links \
+               --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               --no-check-certificate \
+               -P build/${{ matrix.id }}/html ${{ matrix.url }} || true
 
       - name: Prepare Dashing Config
         run: |
