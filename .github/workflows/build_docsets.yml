@@ -1,69 +1,111 @@
-name: Build and Package Docsets
+name: Scrape, Build and Package Docsets
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Runs weekly on Sunday
-  workflow_dispatch:      # Allows manual trigger
+    - cron: '0 0 * * 0' # Every Sunday at midnight
+  workflow_dispatch:   # Manual trigger
 
 jobs:
   build-docsets:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # Required to create/upload to Releases
+    
     strategy:
+      fail-fast: false  # Don't stop if one language fails
       matrix:
         include:
+          - name: "Dart-SDK"
+            id: "dart"
+            type: "dart-sdk" # New specialized type
+
           - name: "Flutter"
             id: "flutter"
-            url: "https://api.flutter.dev/flutter/material/material-library.html"
-          - name: "Dart"
-            id: "dart"
-            url: "https://api.dart.dev/stable/"
+            type: "scrape"
+            url: "https://api.flutter.dev/"
+
           - name: "Python"
             id: "python"
-            url: "https://docs.python.org/3/library/"
+            type: "sphinx"
+            repo: "python/cpython"
+
+          - name: "Rust-Std"
+            id: "rust"
+            type: "rustdoc"
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # --- Setup Tools ---
       - name: Install Dashing
         run: |
           wget https://github.com/technosophos/dashing/releases/download/0.4.0/dashing-linux-amd64
           chmod +x dashing-linux-amd64
           sudo mv dashing-linux-amd64 /usr/local/bin/dashing
 
-      - name: Create Work Directory
-        run: mkdir -p build/${{ matrix.id }}
+      - name: Setup Dart (for SDK docs)
+        if: matrix.type == 'dart-sdk'
+        uses: dart-lang/setup-dart@v1
+        with: { sdk: stable }
 
-      - name: Scrape Documentation
+      - name: Setup Python (for Sphinx)
+        if: matrix.type == 'sphinx'
+        uses: actions/setup-python@v4
+        with: { python-version: '3.10' }
+
+      - name: Setup Rust (for Cargo Doc)
+        if: matrix.type == 'rustdoc'
+        uses: actions/rust-lang/setup-rust-toolchain@v1
+
+      # --- Build HTML Stage ---
+      
+      # NEW: Build Full Dart API from Source
+      - name: Build HTML (Dart SDK Source)
+        if: matrix.type == 'dart-sdk'
         run: |
-          wget --recursive \
-               --no-parent \
-               --level=2 \
-               --page-requisites \
-               --convert-links \
-               --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
-               --no-check-certificate \
-               -P build/${{ matrix.id }}/html ${{ matrix.url }} || true
+          mkdir -p build/${{ matrix.id }}/html
+          dart doc --sdk-docs --output=build/${{ matrix.id }}/html
 
-      - name: Prepare Dashing Config
+      - name: Build HTML (Scrape)
+        if: matrix.type == 'scrape'
+        run: wget -r -np -k -P build/${{ matrix.id }}/html ${{ matrix.url }}
+
+      - name: Build HTML (Sphinx)
+        if: matrix.type == 'sphinx'
         run: |
-          # Safely inject variables into your generic template
-          sed "s/{{DOCSET_NAME}}/${{ matrix.name }}/g; s/{{DOCSET_ID}}/${{ matrix.id }}/g" \
-              dashing.template.json > build/${{ matrix.id }}/html/dashing.json
+          pip install sphinx
+          # Future: git clone ${{ matrix.repo }} ...
 
-      - name: Compile Docset
-        working-directory: build/${{ matrix.id }}/html
-        run: dashing build ${{ matrix.id }}
+      - name: Build HTML (Rust)
+        if: matrix.type == 'rustdoc'
+        run: cargo doc --no-deps && mv target/doc build/${{ matrix.id }}/html
 
-      - name: Move and Compress
+      # --- Dashing Stage ---
+      - name: Compile with Dashing
         run: |
-          mv build/${{ matrix.id }}/html/${{ matrix.id }}.docset ./outputs/${{ matrix.name }}.docset
-          tar -cvzf ${{ matrix.name }}.tar.gz -C ./outputs ${{ matrix.name }}.docset
+          # If a template doesn't exist in the build folder, copy it in
+          cp dashing.template.json build/${{ matrix.id }}/html/dashing.json
+          
+          # Bake the name into the config
+          sed -i 's/{{DOCSET_NAME}}/${{ matrix.name }}/g' build/${{ matrix.id }}/html/dashing.json
+          
+          # Build the actual docset
+          cd build/${{ matrix.id }}/html && dashing build ${{ matrix.id }}
 
-      - name: Upload Release Asset
+      # --- Organize & Release ---
+      - name: Package Output
+        run: |
+          mkdir -p final_docsets
+          cp -r build/${{ matrix.id }}/html/${{ matrix.id }}.docset final_docsets/
+          tar -czf ${{ matrix.id }}.tar.gz -C final_docsets ${{ matrix.id }}.docset
+
+      - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: latest-docs
-          files: ${{ matrix.name }}.tar.gz
+          files: ${{ matrix.id }}.tar.gz
+          tag_name: latest-builds
+          name: "Latest Docset Builds"
+          body: "Auto-generated docsets for Zeal/Dash."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
