@@ -50,10 +50,8 @@ jobs:
           cd staging
           ~/go/bin/dashing build
 
-      - name: Clean up and Verify
+      - name: Verify
         run: |
-          # Move the finished docset out of the staging folder
-          mv staging/markdownguide.docset .
           # Verify structure: This should print 'Contents/Resources/Documents/index.html'
           find markdownguide.docset -name index.html
           
