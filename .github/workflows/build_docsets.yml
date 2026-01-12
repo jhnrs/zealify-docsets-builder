@@ -1,111 +1,65 @@
-name: Scrape, Build and Package Docsets
+name: Build Docsets
 
 on:
+  workflow_dispatch: # Allows you to run this manually from the GitHub "Actions" tab
   schedule:
-    - cron: '0 0 * * 0' # Every Sunday at midnight
-  workflow_dispatch:   # Manual trigger
+    - cron: '0 0 1 * *' # Automatically runs on the 1st of every month
 
 jobs:
-  build-docsets:
+  build-markdownguide:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write   # Required to create/upload to Releases
     
-    strategy:
-      fail-fast: false  # Don't stop if one language fails
-      matrix:
-        include:
-          - name: "Dart-SDK"
-            id: "dart"
-            type: "dart-sdk" # New specialized type
-
-          - name: "Flutter"
-            id: "flutter"
-            type: "scrape"
-            url: "https://api.flutter.dev/"
-
-          - name: "Python"
-            id: "python"
-            type: "sphinx"
-            repo: "python/cpython"
-
-          - name: "Rust-Std"
-            id: "rust"
-            type: "rustdoc"
-
     steps:
-      - name: Checkout Repository
+      # 1. Setup the environment
+      - name: Checkout Code
         uses: actions/checkout@v4
 
-      # --- Setup Tools ---
+      - name: Install Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+
+      # 2. Install Dashing (The tool that organizes the docset)
       - name: Install Dashing
+        run: go install github.com/technosophos/dashing@latest
+
+      # 3. Scraping the website
+      # --mirror: Makes the download recursive
+      # --convert-links: Changes absolute links to relative so it works offline
+      # --adjust-extension: Ensures files end in .html
+      # --page-requisites: Downloads CSS and Images needed for the page
+      - name: Scrap Website
         run: |
-          wget https://github.com/technosophos/dashing/releases/download/0.4.0/dashing-linux-amd64
-          chmod +x dashing-linux-amd64
-          sudo mv dashing-linux-amd64 /usr/local/bin/dashing
+          mkdir -p work_dir/Documents
+          wget --mirror \
+               --convert-links \
+               --adjust-extension \
+               --page-requisites \
+               --no-parent \
+               --directory-prefix=work_dir/Documents \
+               --no-host-directories \
+               https://www.markdownguide.org/
 
-      - name: Setup Dart (for SDK docs)
-        if: matrix.type == 'dart-sdk'
-        uses: dart-lang/setup-dart@v1
-        with: { sdk: stable }
-
-      - name: Setup Python (for Sphinx)
-        if: matrix.type == 'sphinx'
-        uses: actions/setup-python@v4
-        with: { python-version: '3.10' }
-
-      - name: Setup Rust (for Cargo Doc)
-        if: matrix.type == 'rustdoc'
-        uses: actions/rust-lang/setup-rust-toolchain@v1
-
-      # --- Build HTML Stage ---
-      
-      # NEW: Build Full Dart API from Source
-      - name: Build HTML (Dart SDK Source)
-        if: matrix.type == 'dart-sdk'
+      # 4. Build the Docset
+      # This moves your scraped HTML into the standard Zeal/Dash structure
+      - name: Build with Dashing
         run: |
-          mkdir -p build/${{ matrix.id }}/html
-          dart doc --sdk-docs --output=build/${{ matrix.id }}/html
-
-      - name: Build HTML (Scrape)
-        if: matrix.type == 'scrape'
-        run: wget -r -np -k -P build/${{ matrix.id }}/html ${{ matrix.url }}
-
-      - name: Build HTML (Sphinx)
-        if: matrix.type == 'sphinx'
-        run: |
-          pip install sphinx
-          # Future: git clone ${{ matrix.repo }} ...
-
-      - name: Build HTML (Rust)
-        if: matrix.type == 'rustdoc'
-        run: cargo doc --no-deps && mv target/doc build/${{ matrix.id }}/html
-
-      # --- Dashing Stage ---
-      - name: Compile with Dashing
-        run: |
-          # If a template doesn't exist in the build folder, copy it in
-          cp dashing.template.json build/${{ matrix.id }}/html/dashing.json
+          cp dashing.json work_dir/
+          cd work_dir
+          ~/go/bin/dashing build
           
-          # Bake the name into the config
-          sed -i 's/{{DOCSET_NAME}}/${{ matrix.name }}/g' build/${{ matrix.id }}/html/dashing.json
-          
-          # Build the actual docset
-          cd build/${{ matrix.id }}/html && dashing build ${{ matrix.id }}
-
-      # --- Organize & Release ---
-      - name: Package Output
+      # 5. Compress for your Flutter App
+      # We create a ZIP file which is easy for your app to download and extract
+      - name: Compress Docset
         run: |
-          mkdir -p final_docsets
-          cp -r build/${{ matrix.id }}/html/${{ matrix.id }}.docset final_docsets/
-          tar -czf ${{ matrix.id }}.tar.gz -C final_docsets ${{ matrix.id }}.docset
+          cd work_dir
+          zip -r ../markdownguide.docset.zip markdownguide.docset
 
-      - name: Upload to Release
+      # 6. Upload to GitHub Releases
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ matrix.id }}.tar.gz
-          tag_name: latest-builds
-          name: "Latest Docset Builds"
-          body: "Auto-generated docsets for Zeal/Dash."
+          files: markdownguide.docset.zip
+          tag_name: docset-build-${{ github.run_number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
