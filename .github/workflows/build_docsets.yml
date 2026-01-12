@@ -8,6 +8,8 @@ on:
 jobs:
   build-markdownguide:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
       # 1. Setup the environment
