@@ -41,32 +41,31 @@ jobs:
                --execute robots=off \
                https://www.markdownguide.org/ || true
 
-      # 4. Build the Docset strictly
+     # 4. Build the Docset
       - name: Build with Dashing
         run: |
-          # Dashing expects the dashing.json and the SOURCE files in the same spot.
-          # It will AUTOMATICALLY create the 'Contents/Resources/Documents' structure.
           cp dashing.json staging/
           cd staging
           ~/go/bin/dashing build
 
-      - name: Verify
+      # 5. Clean up & Verify (Corrected)
+      - name: Verify Structure
         run: |
-          # Verify structure: This should print 'Contents/Resources/Documents/index.html'
-          find markdownguide.docset -name index.html
+          # We check the structure inside the staging folder
+          ls -R staging/markdownguide.docset/Contents/Resources/Documents/
           
-      # 5. Compress for your Flutter App
-      # We create a ZIP file which is easy for your app to download and extract
+      # 6. Compress (Point to the correct path)
       - name: Compress Docset
         run: |
-          cd work_dir
+          # We go into staging, zip the folder, and put the zip in the root
+          cd staging
           zip -r ../markdownguide.docset.zip markdownguide.docset
 
-      # 6. Upload to GitHub Releases
+      # 7. Create Release (Looks in the root)
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: markdownguide.docset.zip
-          tag_name: docset-build-${{ github.run_number }}
+          tag_name: "v${{ github.run_number }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
