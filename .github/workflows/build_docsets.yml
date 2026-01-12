@@ -25,35 +25,37 @@ jobs:
       - name: Install Dashing
         run: go install github.com/technosophos/dashing@latest
 
-      # 3. Scraping the website
-      # --mirror: Makes the download recursive
-      # --convert-links: Changes absolute links to relative so it works offline
-      # --adjust-extension: Ensures files end in .html
-      # --page-requisites: Downloads CSS and Images needed for the page
+      # 3. Scraping with "Flat" structure
       - name: Scrap Website
         run: |
-          mkdir -p work_dir/Documents
+          # Create a temporary staging area
+          mkdir staging
           wget --mirror \
                --convert-links \
                --adjust-extension \
                --page-requisites \
                --no-parent \
-               --directory-prefix=work_dir/Documents \
                --no-host-directories \
-               --user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               --directory-prefix=staging \
+               --user-agent="Mozilla/5.0" \
                --execute robots=off \
-               --timeout=30 \
-               --tries=3 \
-               --no-check-certificate \
                https://www.markdownguide.org/ || true
 
-      # 4. Build the Docset
-      # This moves your scraped HTML into the standard Zeal/Dash structure
+      # 4. Build the Docset strictly
       - name: Build with Dashing
         run: |
-          cp dashing.json work_dir/
-          cd work_dir
+          # Dashing expects the dashing.json and the SOURCE files in the same spot.
+          # It will AUTOMATICALLY create the 'Contents/Resources/Documents' structure.
+          cp dashing.json staging/
+          cd staging
           ~/go/bin/dashing build
+
+      - name: Clean up and Verify
+        run: |
+          # Move the finished docset out of the staging folder
+          mv staging/markdownguide.docset .
+          # Verify structure: This should print 'Contents/Resources/Documents/index.html'
+          find markdownguide.docset -name index.html
           
       # 5. Compress for your Flutter App
       # We create a ZIP file which is easy for your app to download and extract
