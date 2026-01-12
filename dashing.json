@@ -1,0 +1,13 @@
+{
+    "name": "MarkdownGuide",
+    "package": "markdownguide",
+    "index": "index.html",
+    "selectors": {
+        "h1": "Guide",
+        "h2": "Section",
+        "h3": "Subsection"
+    },
+    "ignore": [
+        "blog"
+    ]
+}
