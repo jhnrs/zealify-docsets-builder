@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - id: "Markdown"        # Changed from "markdownguide"
@@ -20,7 +21,7 @@ jobs:
           - id: "Flutter"         # Changed from "flutter"
             name: "Flutter"       # Human-friendly name
             type: "download"
-            url: "https://api.flutter.dev/offline/flutter.zip"
+            url: "https://api.flutter.dev/offline/flutter.docs.zip"
 
     steps:
       - name: Checkout Code
