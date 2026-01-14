@@ -2,79 +2,63 @@ name: Build Docsets (Parallel)
 
 on:
   workflow_dispatch:
+    inputs:
+      target_id:
+        description: 'Which docset to build? (Markdown, Flutter, or All)'
+        required: true
+        default: 'All'
+        type: choice
+        options:
+          - All
+          - Markdown
+          - Flutter
   schedule:
     - cron: '0 0 1 * *'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    # Removed the job-level 'if' because it can't see matrix.id
     strategy:
       fail-fast: false
       matrix:
         include:
-          - id: "Markdown"        # Changed from "markdownguide"
-            name: "Markdown"      # Human-friendly name
+          - id: "Markdown"
+            name: "Markdown"
             type: "scrape"
             url: "https://www.markdownguide.org/"
-          - id: "Flutter"         # Changed from "flutter"
-            name: "Flutter"       # Human-friendly name
+          - id: "Flutter"
+            name: "Flutter"
             type: "download"
             url: "https://api.flutter.dev/offline/flutter.docs.zip"
 
     steps:
       - name: Checkout Code
+        # This step and all below now check your manual selection
+        if: |
+          github.event_name == 'schedule' || 
+          inputs.target_id == 'All' || 
+          inputs.target_id == matrix.id
         uses: actions/checkout@v4
 
-      # --- Tooling Setup ---
-      - name: Install Go & Dashing
-        uses: actions/setup-go@v4
-        with:
-          go-version: '1.21'
-      
-      - name: Install Dashing
-        run: go install github.com/technosophos/dashing@latest
-
-      # --- Step A: Scraping (for Markdown) ---
-      - name: Scrape Website
-        if: matrix.type == 'scrape'
-        run: |
-          mkdir staging
-          # We use --no-host-directories to prevent nested 'www.markdownguide.org' folders
-          wget --mirror --convert-links --adjust-extension --page-requisites --no-parent --no-host-directories \
-               --directory-prefix=staging --user-agent="Mozilla/5.0" --execute robots=off \
-               ${{ matrix.url }} || true
-
-      # --- Step B: Download & Clean (for Flutter) ---
-      - name: Download and Unpack SDK Docs
-        if: matrix.type == 'download'
+      - name: Process Flutter Package
+        # You must repeat the check for every major step
+        if: |
+          matrix.type == 'download' && 
+          (github.event_name == 'schedule' || inputs.target_id == 'All' || inputs.target_id == matrix.id)
         run: |
           mkdir staging
           wget -O flutter_docs.zip ${{ matrix.url }}
           unzip flutter_docs.zip -d temp_extract
-          # Flattening the directory to focus on standard Zeal structure
-          # We move everything from the extracted 'flutter' folder into staging
-          mv temp_extract/*/* staging/ || mv temp_extract/* staging/
+          mv temp_extract/**/dev/docs/doc/* staging/
           rm -rf temp_extract flutter_docs.zip
 
-      # --- Dashing Stage ---
-      - name: Build with Dashing
+      # --- Step C: Final Packaging ---
+      - name: Package to Tarball
         run: |
-          # Replace placeholders in the template and save as the real dashing.json
-          sed -e 's/{{NAME}}/${{ matrix.name }}/g' \
-              -e 's/{{PACKAGE}}/${{ matrix.id }}/g' \
-              dashing.template.json > staging/dashing.json
-          
+          # Use tar -czf to create the .tar.gz file for Zeal compatibility
           cd staging
-          ~/go/bin/dashing build ${{ matrix.id }}
-
-      # --- Packaging (Standard Zeal Structure) ---
-      - name: Package Docset
-        run: |
-          # Create a compressed tarball: Markdown.docset.tar.gz or Flutter.docset.tar.gz
-          cd staging
-          tar -czf ../${{ matrix.id }}.docset.tar.gz ${{ matrix.id }}.docset
+          tar -czf ../${{ matrix.id }}.docset.tar.gz .
 
       # --- Release ---
       - name: Create Release
