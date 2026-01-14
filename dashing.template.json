@@ -1,0 +1,14 @@
+{
+    "name": "{{NAME}}",
+    "package": "{{PACKAGE}}",
+    "index": "index.html",
+    "selectors": {
+        "h1": "Category",
+        "h2": "Class",
+        "h3": "Method"
+    },
+    "ignore": [
+        "blog",
+        "ads"
+    ]
+}
