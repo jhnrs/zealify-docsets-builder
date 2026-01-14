@@ -1,71 +1,86 @@
-name: Build Docsets
+name: Build Docsets (Parallel)
 
 on:
-  workflow_dispatch: # Allows you to run this manually from the GitHub "Actions" tab
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 1 * *' # Automatically runs on the 1st of every month
+    - cron: '0 0 1 * *'
 
 jobs:
-  build-markdownguide:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
+    strategy:
+      matrix:
+        include:
+          - id: "Markdown"        # Changed from "markdownguide"
+            name: "Markdown"      # Human-friendly name
+            type: "scrape"
+            url: "https://www.markdownguide.org/"
+          - id: "Flutter"         # Changed from "flutter"
+            name: "Flutter"       # Human-friendly name
+            type: "download"
+            url: "https://api.flutter.dev/offline/flutter.zip"
+
     steps:
-      # 1. Setup the environment
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install Go
+      # --- Tooling Setup ---
+      - name: Install Go & Dashing
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
-
-      # 2. Install Dashing (The tool that organizes the docset)
+      
       - name: Install Dashing
         run: go install github.com/technosophos/dashing@latest
 
-      # 3. Scraping with "Flat" structure
-      - name: Scrap Website
+      # --- Step A: Scraping (for Markdown) ---
+      - name: Scrape Website
+        if: matrix.type == 'scrape'
         run: |
-          # Create a temporary staging area
           mkdir staging
-          wget --mirror \
-               --convert-links \
-               --adjust-extension \
-               --page-requisites \
-               --no-parent \
-               --no-host-directories \
-               --directory-prefix=staging \
-               --user-agent="Mozilla/5.0" \
-               --execute robots=off \
-               https://www.markdownguide.org/ || true
+          # We use --no-host-directories to prevent nested 'www.markdownguide.org' folders
+          wget --mirror --convert-links --adjust-extension --page-requisites --no-parent --no-host-directories \
+               --directory-prefix=staging --user-agent="Mozilla/5.0" --execute robots=off \
+               ${{ matrix.url }} || true
 
-     # 4. Build the Docset
+      # --- Step B: Download & Clean (for Flutter) ---
+      - name: Download and Unpack SDK Docs
+        if: matrix.type == 'download'
+        run: |
+          mkdir staging
+          wget -O flutter_docs.zip ${{ matrix.url }}
+          unzip flutter_docs.zip -d temp_extract
+          # Flattening the directory to focus on standard Zeal structure
+          # We move everything from the extracted 'flutter' folder into staging
+          mv temp_extract/*/* staging/ || mv temp_extract/* staging/
+          rm -rf temp_extract flutter_docs.zip
+
+      # --- Dashing Stage ---
       - name: Build with Dashing
         run: |
-          cp dashing.json staging/
-          cd staging
-          ~/go/bin/dashing build
-
-      # 5. Clean up & Verify (Corrected)
-      - name: Verify Structure
-        run: |
-          # We check the structure inside the staging folder
-          ls -R staging/markdownguide.docset/Contents/Resources/Documents/
+          # Replace placeholders in the template and save as the real dashing.json
+          sed -e 's/{{NAME}}/${{ matrix.name }}/g' \
+              -e 's/{{PACKAGE}}/${{ matrix.id }}/g' \
+              dashing.template.json > staging/dashing.json
           
-      # 6. Compress (Point to the correct path)
-      - name: Compress Docset
-        run: |
-          # We go into staging, zip the folder, and put the zip in the root
           cd staging
-          zip -r ../markdownguide.docset.zip markdownguide.docset
+          ~/go/bin/dashing build ${{ matrix.id }}
 
-      # 7. Create Release (Looks in the root)
+      # --- Packaging (Standard Zeal Structure) ---
+      - name: Package Docset
+        run: |
+          # Create a compressed tarball: Markdown.docset.tar.gz or Flutter.docset.tar.gz
+          cd staging
+          tar -czf ../${{ matrix.id }}.docset.tar.gz ${{ matrix.id }}.docset
+
+      # --- Release ---
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: markdownguide.docset.zip
+          files: ${{ matrix.id }}.docset.tar.gz
           tag_name: "v${{ github.run_number }}"
+          name: "Docset Release v${{ github.run_number }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
