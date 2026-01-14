@@ -2,6 +2,13 @@ name: Build Docsets (Parallel)
 
 on:
   workflow_dispatch:
+    inputs:
+      target_id:
+        description: 'Which docset to build? (Markdown, Flutter, or All)'
+        required: true
+        default: 'All'
+        type: choice
+        options: [All, Markdown, Flutter]
   schedule:
     - cron: '0 0 1 * *'
 
@@ -14,70 +21,61 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - id: "Markdown"        # Changed from "markdownguide"
-            name: "Markdown"      # Human-friendly name
+          - id: "Markdown"
+            name: "Markdown"
             type: "scrape"
             url: "https://www.markdownguide.org/"
-          - id: "Flutter"         # Changed from "flutter"
-            name: "Flutter"       # Human-friendly name
+          - id: "Flutter"
+            name: "Flutter"
             type: "download"
             url: "https://api.flutter.dev/offline/flutter.docs.zip"
 
     steps:
+      # Use step-level conditionals to allow matrix.id access
       - name: Checkout Code
+        if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         uses: actions/checkout@v4
 
-      # --- Tooling Setup ---
       - name: Install Go & Dashing
+        if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         uses: actions/setup-go@v4
         with:
           go-version: '1.21'
       
       - name: Install Dashing
+        if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         run: go install github.com/technosophos/dashing@latest
 
-      # --- Step A: Scraping (for Markdown) ---
-      - name: Scrape Website
-        if: matrix.type == 'scrape'
+      - name: Scrape Website (Markdown)
+        if: matrix.type == 'scrape' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
         run: |
           mkdir staging
-          # We use --no-host-directories to prevent nested 'www.markdownguide.org' folders
           wget --mirror --convert-links --adjust-extension --page-requisites --no-parent --no-host-directories \
                --directory-prefix=staging --user-agent="Mozilla/5.0" --execute robots=off \
                ${{ matrix.url }} || true
 
-      # --- Step B: Download & Clean (for Flutter) ---
-      - name: Download and Unpack SDK Docs
-        if: matrix.type == 'download'
+      - name: Download and Unpack SDK Docs (Original Structure)
+        if: matrix.type == 'download' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
         run: |
           mkdir staging
           wget -O flutter_docs.zip ${{ matrix.url }}
-          unzip flutter_docs.zip -d temp_extract
-          # Flattening the directory to focus on standard Zeal structure
-          # We move everything from the extracted 'flutter' folder into staging
-          mv temp_extract/*/* staging/ || mv temp_extract/* staging/
-          rm -rf temp_extract flutter_docs.zip
+          unzip flutter_docs.zip -d staging
+          rm flutter_docs.zip
 
-      # --- Dashing Stage ---
       - name: Build with Dashing
+        if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         run: |
-          # Replace placeholders in the template and save as the real dashing.json
-          sed -e 's/{{NAME}}/${{ matrix.name }}/g' \
-              -e 's/{{PACKAGE}}/${{ matrix.id }}/g' \
-              dashing.template.json > staging/dashing.json
-          
-          cd staging
-          ~/go/bin/dashing build ${{ matrix.id }}
+          sed -e 's/{{NAME}}/${{ matrix.name }}/g' -e 's/{{PACKAGE}}/${{ matrix.id }}/g' dashing.template.json > staging/dashing.json
+          cd staging && ~/go/bin/dashing build ${{ matrix.id }}
 
-      # --- Packaging (Standard Zeal Structure) ---
       - name: Package Docset
+        if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         run: |
-          # Create a compressed tarball: Markdown.docset.tar.gz or Flutter.docset.tar.gz
           cd staging
           tar -czf ../${{ matrix.id }}.docset.tar.gz ${{ matrix.id }}.docset
 
-      # --- Release ---
       - name: Create Release
+        if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ matrix.id }}.docset.tar.gz
