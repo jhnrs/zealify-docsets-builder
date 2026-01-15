@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       target_id:
-        description: 'Which docset to build? (Markdown, Flutter, or All)'
+        description: 'Which docset to build?'
         required: true
         default: 'All'
         type: choice
-        options: [All, Markdown, Flutter API, Dart Language]
+        options: [All, Markdown, Flutter-API, Dart-Language]
   schedule:
     - cron: '0 0 1 * *'
 
@@ -25,12 +25,12 @@ jobs:
             name: "Markdown"
             type: "scrape"
             url: "https://www.markdownguide.org/"
-          - id: "Flutter API"
-            name: "Flutter API"
+          - id: "Flutter-API"
+            name: "Flutter-API"
             type: "download"
             url: "https://api.flutter.dev/offline/flutter.docs.zip"
-          - id: "Dart Language"
-            name: "Dart Language"
+          - id: "Dart-Language"
+            name: "Dart-Language"
             type: scrape
             url: "https://dart.dev/docs"
 
@@ -50,7 +50,7 @@ jobs:
         if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         run: go install github.com/technosophos/dashing@latest
 
-      - name: Scrape Website (Markdown)
+      - name: Scrape Website
         if: matrix.type == 'scrape' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
         run: |
           mkdir staging
