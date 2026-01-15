@@ -25,10 +25,14 @@ jobs:
             name: "Markdown"
             type: "scrape"
             url: "https://www.markdownguide.org/"
-          - id: "Flutter"
-            name: "Flutter"
+          - id: "Flutter API"
+            name: "Flutter API"
             type: "download"
             url: "https://api.flutter.dev/offline/flutter.docs.zip"
+          - id: "Dart Language"
+            name: "Dart Language"
+            type: scrape
+            url: "https://dart.dev/docs"
 
     steps:
       # Use step-level conditionals to allow matrix.id access
