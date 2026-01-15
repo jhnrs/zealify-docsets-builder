@@ -8,7 +8,7 @@ on:
         required: true
         default: 'All'
         type: choice
-        options: [All, Markdown, Flutter]
+        options: [All, Markdown, Flutter API, Dart Language]
   schedule:
     - cron: '0 0 1 * *'
 
