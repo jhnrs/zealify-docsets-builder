@@ -61,12 +61,14 @@ jobs:
           node-version: '22'
 
       - name: Build React Native Website
-        if: matrix.type == 'git-build' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
+        if: matrix.id == 'React-Native' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
         run: |
           git clone --depth 1 ${{ matrix.url }} rn-repo
           cd rn-repo/website
-          npm install
-          npm run build
+          # Use 'npm install' to ensure all binaries are placed in node_modules/.bin
+          npm install 
+          # Use 'npx' to ensure it finds the docusaurus command locally
+          npx docusaurus build
           mkdir -p ../../staging
           cp -r build/* ../../staging/
       # -----------------------------------
