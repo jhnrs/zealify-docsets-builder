@@ -8,7 +8,7 @@ on:
         required: true
         default: 'All'
         type: choice
-        options: [All, Markdown, Flutter-API, Dart-Language]
+        options: [All, Markdown, Flutter-API, Dart-Language, React-Native] # Added React-Native here
   schedule:
     - cron: '0 0 1 * *'
 
@@ -33,14 +33,17 @@ jobs:
             name: "Dart-Language"
             type: scrape
             url: "https://dart.dev/docs"
+          - id: "React-Native"
+            name: "React-Native"
+            type: "git-build" # Changed from 'download' to 'git-build'
+            url: "https://github.com/facebook/react-native-website.git"
 
     steps:
-      # Use step-level conditionals to allow matrix.id access
       - name: Checkout Code
         if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         uses: actions/checkout@v4
 
-      - name: Install Go & Dashing
+      - name: Install Go
         if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         uses: actions/setup-go@v4
         with:
@@ -50,7 +53,25 @@ jobs:
         if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         run: go install github.com/technosophos/dashing@latest
 
-      - name: Scrape Website
+      # --- React Native Specific Setup ---
+      - name: Setup Node.js (React Native only)
+        if: matrix.id == 'React-Native' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build React Native Website
+        if: matrix.type == 'git-build' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
+        run: |
+          git clone --depth 1 ${{ matrix.url }} rn-repo
+          cd rn-repo/website
+          npm install
+          npm run build
+          mkdir -p ../../staging
+          cp -r build/* ../../staging/
+      # -----------------------------------
+
+      - name: Scrape Website (Others)
         if: matrix.type == 'scrape' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
         run: |
           mkdir staging
@@ -58,17 +79,18 @@ jobs:
                --directory-prefix=staging --user-agent="Mozilla/5.0" --execute robots=off \
                ${{ matrix.url }} || true
 
-      - name: Download and Unpack SDK Docs (Original Structure)
+      - name: Download and Unpack SDK Docs (Flutter)
         if: matrix.type == 'download' && (github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule')
         run: |
           mkdir staging
-          wget -O flutter_docs.zip ${{ matrix.url }}
-          unzip flutter_docs.zip -d staging
-          rm flutter_docs.zip
+          wget -O docs.zip ${{ matrix.url }}
+          unzip docs.zip -d staging
+          rm docs.zip
 
       - name: Build with Dashing
         if: github.event.inputs.target_id == 'All' || github.event.inputs.target_id == matrix.id || github.event_name == 'schedule'
         run: |
+          # Use our specific template logic
           sed -e 's/{{NAME}}/${{ matrix.name }}/g' -e 's/{{PACKAGE}}/${{ matrix.id }}/g' dashing.template.json > staging/dashing.json
           cd staging && ~/go/bin/dashing build ${{ matrix.id }}
 
